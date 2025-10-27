@@ -1,0 +1,24 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual env & environment
+.venv/
+.env
+.env.*
+
+# Project data (not tracked)
+label/
+source/
+previews/
+samples/
+checkpoints/
+dataset_index.csv
+
+# Logs & misc
+*.log
+.DS_Store
+Thumbs.db
