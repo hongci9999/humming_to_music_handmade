@@ -225,3 +225,92 @@
 - 허밍→키/BPM/길이 추정 MAE: 키 정확도 ≥ 80%, BPM 오차 ≤ 3%
 - 루프 3–4개 제안 모두 재생·정합 OK, 전환 청감 품질 MOS ≥ 3.5
 - 허밍 길이 동일 트랙 생성 성공률 ≥ 95%
+
+## 15) 학습 계획(2마디 WAV 생성을 위한 MIDI 조건부 생성)
+
+- 목표: 분석으로 얻은 key/BPM에 맞는 2마디 루프를 조건부로 생성하고, 사운드폰트 기반 렌더링을 통해 WAV로 출력한다.
+
+### 15.1 데이터 준비
+
+- 대상: `barCount == 2`, `loopInfo.beatCount == 4`(4/4) 루프만 사용(기타 박자는 후속 지원)
+- 인덱스 생성: 7장 파이프라인의 컬럼 설계대로 `dataset_index.(csv|parquet)` 생성
+  - `split`: `loopIndex` 기준으로 train/val/test 분할(중복 방지)
+- MIDI 파싱 및 양자화
+  - `pretty_midi`로 노트/컨트롤/프로그램 이벤트 추출
+  - 박자 그리드: 16단계/박 → 1마디 64스텝, 2마디 128스텝으로 양자화
+- 키 정규화(전사)
+  - 모든 시퀀스를 C 메이저/마이너 기준으로 전사해 저장, 원래 키는 `transpose_semitones`로 보존
+- 증강
+  - 12키 전조 순환, velocity/타이밍 미세 변형, 조건 드랍아웃
+
+### 15.2 토크나이징(권장: REMI 변형)
+
+- 조건 토큰: `[KEY_{C|...}] [MODE_{MAJ|MIN}] [BPM_{bucket}] [INSTR_{클래스}] [GENRE_{버킷}]`
+- 시퀀스 토큰: `[BAR_1] [POS_x/64] [NOTE_ON_p,v] [NOTE_OFF_p] ... [BAR_2] ... [EOS]`
+- 제약: 2마디 총 길이 128스텝 초과 토큰 금지, [EOS]는 정확히 2마디 종료 시점에만 허용
+
+### 15.3 모델(경량 Transformer Decoder)
+
+- 파라미터 규모: 20–60M(레이어 8–12, d_model 512–768, n_head 8–12)
+- 입력: 조건 프롬프트 + 2마디 이벤트(teacher forcing)
+- 출력: 다음 토큰 확률, 목표는 cross-entropy 최소화(라벨 스무딩 0.1)
+
+### 15.4 학습 하이퍼파라미터(초안)
+
+- 시퀀스 길이: ≤1024 토큰(2마디 범위 내)
+- 옵티마이저: AdamW(lr=3e-4, β=(0.9,0.98), weight_decay=0.01)
+- 스케줄: warmup 2k steps → cosine decay
+- 배치: 32–64, 에폭: 20–40(early stop: val loss 5에폭 정체)
+- 정규화: 토큰 드롭(조건 10–20% 드랍), gradient clipping 1.0
+
+### 15.5 길이/키 보장 규칙(미디·렌더링)
+
+- 길이 고정
+  - 생성 시 128스텝(2마디) 도달 즉시 [EOS] 강제, 초과 토큰 무시
+  - 모든 Note-Off/페달 Off를 2마디 끝 tick 이하로 클램프
+  - MIDI 메타: 단일 Tempo/TimeSig, `EndOfTrack`는 2마디 끝 tick에 배치
+- 키 정합
+  - 학습 시 C 기준, 추론 완료 후 `transpose_semitones`로 target key 전조
+- WAV 길이 트림
+  - 목표 샘플 수 `N = round(sr * (bars*beats*60/bpm))`로 하드 컷 + 5–10ms 페이드아웃
+
+### 15.6 평가 지표
+
+- Tonal match: 키 일치율, Tonnetz 거리, |전조량|
+- Rhythm match: BPM 오차, 다운비트 스냅률
+- 길이 정확도: MIDI 마지막 이벤트 위치, WAV 샘플 길이 오차(≤ 1프레임)
+- 다양성: 루프 간 MFCC/F0 분포 거리, 토큰 n-gram 다양성
+- MOS: 내부 청취 평가(1–5)
+
+### 15.7 추론 파이프라인
+
+- 입력: `{target_key, bpm, instrument(optional), genre(optional)}`
+- 조건 프롬프트 구성 → top-p(0.9)+temperature(1.0) 샘플링, 2마디 도달 시 종료
+- 전조: C 기준 생성 결과를 `target_key`로 전조
+- 렌더: `pyfluidsynth` 사운드폰트 렌더 → 라우드니스 정규화 → 길이 트림
+
+### 15.8 산출물/디렉터리
+
+- `dataset_index.(csv|parquet)`
+- `features/midi_tokens/*.jsonl`(조건+시퀀스)
+- `checkpoints/midi_transformer.pt`
+- `renderer/sf2/*`(사운드폰트) 및 렌더 스크립트
+- (선택) `features/mel/*.npy`, `checkpoints/mel_diffusion.pt`
+
+### 15.9 리소스/환경
+
+- Python 의존성: `requirements.txt`(librosa, pretty_midi, torch, pyfluidsynth 등)
+- 연산: 단일 GPU(12–24GB)로 수 시간~1일, mixed precision 권장
+
+### 15.10 리스크 & 대응(학습 관점)
+
+- 라벨-실데이터 키/BPM 불일치 → 사전 추정 교차검증, outlier 제외
+- 드물거나 극단 템포 분포 → BPM 버킷화/가중 샘플링
+- 과적합 → 조건 드랍, 전조 증강, early stopping
+
+### 15.11 일정(세부)
+
+- W1: 인덱싱/토큰화 파이프라인, train/val/test 분할, 품질 리포트
+- W2: 모델 프로토타입 학습, 길이/키 보장 규칙 구현, 1차 추론 샘플
+- W3: 하이퍼파라미터 튜닝, 랜더러 품질 보정(사운드폰트/페이드), 평가 자동화
+- W4+: API 통합(`/generate`), 내부 베타, 문서화 및 샘플 데모 업데이트
