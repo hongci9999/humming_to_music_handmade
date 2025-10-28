@@ -5,8 +5,10 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import argparse
 from pathlib import Path
+import random
 
 import torch
+import numpy as np
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.nn.utils import clip_grad_norm_
@@ -15,6 +17,19 @@ from tqdm import tqdm
 from services.tokens.tokenizer import Vocabulary
 from services.models.transformer import MidiTransformer, MidiTransformerConfig
 from services.data.dataset import MidiTokenDataset
+
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    try:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    except Exception:
+        pass
 
 
 def train_one_epoch(model, loader, optimizer, device):
@@ -70,7 +85,11 @@ def main():
     parser.add_argument("--num_layers", type=int, default=8)
     parser.add_argument("--max_seq_len", type=int, default=1024)
     parser.add_argument("--save_dir", type=str, default=str(Path(__file__).resolve().parents[1] / "checkpoints"))
+    parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
+
+    if args.seed is not None:
+        set_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -84,7 +103,10 @@ def main():
 
     # Warm-up pass to build vocabulary on a small subset
     warm_ds = MidiTokenDataset(args.index_csv, vocab=vocab, split="train", max_len=args.max_seq_len)
-    warm_loader = DataLoader(warm_ds, batch_size=64, shuffle=True, num_workers=0)
+    gen = torch.Generator()
+    if args.seed is not None:
+        gen.manual_seed(args.seed)
+    warm_loader = DataLoader(warm_ds, batch_size=64, shuffle=True, num_workers=0, generator=gen)
     for i, batch in enumerate(warm_loader):
         # Trigger tokenization to populate vocab, then stop early
         if i > 10:
@@ -96,8 +118,8 @@ def main():
     # Build final datasets with frozen vocab
     train_ds = MidiTokenDataset(args.index_csv, vocab=vocab, split="train", max_len=args.max_seq_len)
     val_ds = MidiTokenDataset(args.index_csv, vocab=vocab, split="val", max_len=args.max_seq_len)
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, num_workers=0, drop_last=True, generator=gen)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, num_workers=0, generator=gen)
 
     config = MidiTransformerConfig(
         vocab_size=len(vocab.id_to_token),

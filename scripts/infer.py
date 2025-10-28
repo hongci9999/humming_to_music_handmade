@@ -5,8 +5,10 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 import argparse
 from pathlib import Path
+import random
 
 import torch
+import numpy as np
 import pretty_midi as pm
 
 from services.tokens.tokenizer import Vocabulary, MidiTokenizer
@@ -30,6 +32,20 @@ def build_condition_tokens(tokenizer: MidiTokenizer, conditions):
     return ids[:cut]
 
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Optional: improve determinism; may reduce perf
+    try:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    except Exception:
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint", type=str, default=str(Path(__file__).resolve().parents[1] / "checkpoints" / "midi_transformer.pt"))
@@ -39,7 +55,13 @@ def main():
     parser.add_argument("--scale", type=str, default="C major")
     parser.add_argument("--instrument", type=str, default="Piano")
     parser.add_argument("--genre", type=str, default="Dance")
+    parser.add_argument("--seed", type=int, default=None, help="Random seed for reproducible sampling")
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--top_p", type=float, default=0.9)
     args = parser.parse_args()
+
+    if args.seed is not None:
+        set_seed(args.seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -60,7 +82,13 @@ def main():
 
     # Generate up to a reasonable budget; the tokenizer/decoder enforces 2 bars
     eos_id = tokenizer.vocab.get_id("<EOS>")
-    out_ids = model.generate(input_ids, max_new_tokens=512, temperature=1.0, top_p=0.9, eos_token_id=eos_id)
+    out_ids = model.generate(
+        input_ids,
+        max_new_tokens=512,
+        temperature=float(args.temperature),
+        top_p=float(args.top_p),
+        eos_token_id=eos_id,
+    )
     out_ids_list = out_ids[0].tolist()
 
     midi = tokenizer.decode(out_ids_list, fallback_bpm=args.bpm)
