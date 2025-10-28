@@ -22,3 +22,8 @@ dataset_index.csv
 *.log
 .DS_Store
 Thumbs.db
+
+# Datasets (do not commit large data)
+dataset/
+!dataset/.gitkeep
+!dataset/README.md
