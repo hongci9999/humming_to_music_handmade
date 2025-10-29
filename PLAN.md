@@ -314,3 +314,14 @@
 - W2: 모델 프로토타입 학습, 길이/키 보장 규칙 구현, 1차 추론 샘플
 - W3: 하이퍼파라미터 튜닝, 랜더러 품질 보정(사운드폰트/페이드), 평가 자동화
 - W4+: API 통합(`/generate`), 내부 베타, 문서화 및 샘플 데모 업데이트
+
+# 가상환경 활성화
+
+.\.venv\Scripts\Activate.ps1
+
+# 추론 실행 (시드 고정, 출력 경로 지정)
+
+python .\scripts\infer.py `  --checkpoint .\checkpoints\exp_20251028_ver2\midi_transformer.pt`
+--vocab_path .\features\vocab.json `  --out_midi .\out\sample3.mid`
+--bpm 120 --scale "D major" --instrument Drums --genre Dance `
+--seed 80 --temperature 1.0 --top_p 0.9

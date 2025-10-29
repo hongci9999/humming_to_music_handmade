@@ -16,14 +16,14 @@
 
 1. Python 3.10+ 권장, 가상환경 생성 및 활성화
 
-```bash
+```powershell
 python -m venv .venv
-. .venv/Scripts/activate  # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 ```
 
 2. 의존성 설치
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
@@ -33,37 +33,37 @@ pip install -r requirements.txt
 
 `dataset/label` 아래 JSON 메타 정보를 읽어 `dataset_index.csv`를 생성합니다.
 
-```bash
-python scripts/index_dataset.py --output dataset_index.csv
+```powershell
+python .\scripts\index_dataset.py --output .\dataset_index.csv
 ```
 
 `.gitignore`에 `dataset/`이 포함되어 있어 실제 데이터 파일은 커밋되지 않습니다.
 
-### 학습(Training)
+### 학습(Training) — PowerShell 예시
 
-```bash
-python scripts/train.py \
-  --index_csv dataset_index.csv \
-  --vocab_path features/vocab.json \
-  --batch_size 32 --epochs 5 --lr 3e-4 \
-  --d_model 512 --n_head 8 --num_layers 8 \
-  --max_seq_len 1024 \
-  --save_dir checkpoints \
+```powershell
+python .\scripts\train.py `
+  --index_csv .\dataset_index.csv `
+  --vocab_path .\features\vocab.json `
+  --batch_size 32 --epochs 5 --lr 3e-4 `
+  --d_model 512 --n_head 8 --num_layers 8 `
+  --max_seq_len 1024 `
+  --save_dir .\checkpoints `
   --seed 42
 ```
 
 - **시드 고정**: `--seed 42`로 데이터 셔플/초기화 등이 재현됩니다(값은 임의 변경 가능).
 - **메모리**: 부족하면 `--batch_size`를 줄이세요.
-- **경로**: 인덱스가 루트에 있으면 `--index_csv .\dataset_index.csv`처럼 절대/상대경로로 지정하세요.
+- **경로**: 인덱스가 루트에 있으면 `--index_csv .\dataset_index.csv`처럼 지정하세요.
 
-### 추론(Inference)
+### 추론(Inference) — PowerShell 예시
 
-```bash
-python scripts/infer.py \
-  --checkpoint checkpoints/midi_transformer.pt \
-  --vocab_path features/vocab.json \
-  --out_midi out/sample.mid \
-  --bpm 120 --scale "C major" --instrument Piano --genre Dance \
+```powershell
+python .\scripts\infer.py `
+  --checkpoint .\checkpoints\midi_transformer.pt `
+  --vocab_path .\features\vocab.json `
+  --out_midi .\out\sample.mid `
+  --bpm 120 --scale "C major" --instrument Piano --genre Dance `
   --seed 42 --temperature 1.0 --top_p 0.9
 ```
 
